@@ -1,6 +1,6 @@
 import ee
 import pandas as pd
-
+import streamlit as st
 def init_gee():
         """Initialise la connexion à Earth Engine"""
         credentials = ee.ServiceAccountCredentials(
