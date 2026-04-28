@@ -145,7 +145,7 @@ def create_ndvi_gif(geo_dict, year):
     return gif_buf.getvalue()
 
 def get_soil_moisture_series(geo_dict, start_date, end_date):
-    """Extrait l'indice d'humidité du sol NMDI."""
+    """Extrait l'indice d'humidité NDWI (Gao/NDMI) tous les 15 jours."""
     roi = ee.Geometry(geo_dict)
     
     s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
@@ -153,33 +153,34 @@ def get_soil_moisture_series(geo_dict, start_date, end_date):
         .filterDate(start_date, end_date) \
         .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
         
-    def add_nmdi(image):
-        nmdi = image.expression(
-            '(GREEN - NIR) / (NIR + GREEN)', {
-                'NIR': s2.select('B8A'),
-                'GREEN': s2.select('B3A')
+    def add_ndwi(image):
+        # NDWI de Gao (Humidité Végétation/Sol) = (NIR - SWIR) / (NIR + SWIR)
+        ndwi = image.expression(
+            '(NIR - SWIR) / (NIR + SWIR)', {
+                'NIR': image.select('B8A'),
+                'SWIR': image.select('B11')
             }
-        ).rename('NMDI')
+        ).rename('NDWI')
         
-        mean_dict = nmdi.reduceRegion(
+        mean_dict = ndwi.reduceRegion(
             reducer=ee.Reducer.mean(),
             geometry=roi,
-            scale=20, 
+            scale=20, # Les bandes B8A et B11 sont à 20m de résolution
             maxPixels=1e10
         )
         return ee.Feature(None, {
             'date': image.date().format('YYYY-MM-dd'),
-            'NMDI': mean_dict.get('NMDI')
+            'NDWI': mean_dict.get('NDWI')
         })
 
-    timeseries = s2.map(add_nmdi).getInfo()
+    timeseries = s2.map(add_ndwi).getInfo()
     
     data = []
     for feature in timeseries['features']:
         date = feature['properties']['date']
-        val = feature['properties'].get('NMDI')
+        val = feature['properties'].get('NDWI')
         if val is not None:
-            data.append({'Date': date, 'NMDI': val})
+            data.append({'Date': date, 'NDWI': val})
             
     df = pd.DataFrame(data)
     if not df.empty:
@@ -194,11 +195,11 @@ def get_soil_moisture_series(geo_dict, start_date, end_date):
     return pd.DataFrame()
 
 def get_summer_sm_thumbs(geo_dict, start_year, end_year):
-    """Génère les URL des images NMDI pour chaque été."""
+    """Génère les URL des images NDWI pour chaque été."""
     roi = ee.Geometry(geo_dict)
     urls = {}
     vis_params = {
-        'min': 0.4, 'max': 0.8,
+        'min': -0.2, 'max': 0.4, # Plage typique du NDWI (Sec à Humide)
         'palette': ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e']
     }
     
@@ -209,15 +210,15 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
             .median()
             
-        nmdi = s2_summer.expression(
-            '(GREEN - NIR) / (NIR + GREEN)', {
-                'NIR': s2.select('B8A'),
-                'GREEN': s2.select('B3A')
+        ndwi = s2_summer.expression(
+            '(NIR - SWIR) / (NIR + SWIR)', {
+                'NIR': s2_summer.select('B8A'),
+                'SWIR': s2_summer.select('B11')
             }
-        ).rename('NMDI').clip(roi)
+        ).rename('NDWI').clip(roi)
         
         try:
-            url = nmdi.getThumbURL({
+            url = ndwi.getThumbURL({
                 'min': vis_params['min'], 'max': vis_params['max'],
                 'palette': vis_params['palette'], 'dimensions': 400, 'format': 'png'
             })
@@ -228,14 +229,14 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
     return urls
 
 def create_sm_gif(geo_dict, year):
-    """Génère un GIF animé de l'humidité du sol (NMDI)."""
+    """Génère un GIF animé de l'humidité (NDWI)."""
     roi = ee.Geometry(geo_dict)
     start_date = pd.to_datetime(f'{year}-04-01')
     end_date = pd.to_datetime(f'{year}-10-31')
     date_ranges = pd.date_range(start=start_date, end=end_date, freq='10D')
     
     palette = ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e']
-    vmin, vmax = 0.4, 0.8
+    vmin, vmax = -0.2, 0.4
     frames = []
     
     for i in range(len(date_ranges)-1):
@@ -247,15 +248,15 @@ def create_sm_gif(geo_dict, year):
             .filterDate(d1, d2) \
             .median()
         
-        nmdi = s2.expression(
-            '(GREEN - NIR) / (NIR + GREEN)', {
+        ndwi = s2.expression(
+            '(NIR - SWIR) / (NIR + SWIR)', {
                 'NIR': s2.select('B8A'),
-                'GREEN': s2.select('B3A')
+                'SWIR': s2.select('B11')
             }
-        ).rename('NMDI').clip(roi)
+        ).rename('NDWI').clip(roi)
         
         try:
-            url = nmdi.getThumbURL({
+            url = ndwi.getThumbURL({
                 'min': vmin, 'max': vmax, 'palette': palette,
                 'dimensions': 600, 'format': 'png'
             })
@@ -264,14 +265,14 @@ def create_sm_gif(geo_dict, year):
             
             fig, ax = plt.subplots(figsize=(8, 6))
             ax.imshow(img)
-            ax.set_title(f"Humidité du Sol NMDI : {d1} au {d2}", fontsize=14, fontweight='bold')
+            ax.set_title(f"Humidité (NDWI) : {d1} au {d2}", fontsize=14, fontweight='bold')
             ax.axis('off') 
             
-            cmap = LinearSegmentedColormap.from_list('nmdi', palette)
+            cmap = LinearSegmentedColormap.from_list('ndwi', palette)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
             sm.set_array([])
             cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
-            cbar.set_label('NMDI', fontsize=12, fontweight='bold')
+            cbar.set_label('NDWI', fontsize=12, fontweight='bold')
             
             buf = io.BytesIO()
             plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white')
