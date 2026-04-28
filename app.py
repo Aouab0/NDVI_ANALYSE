@@ -1,4 +1,5 @@
 import streamlit as st
+from processing import create_ndvi_gif
 import rasterio
 from rasterio.features import shapes
 from shapely.geometry import shape
@@ -148,7 +149,44 @@ with tab1:
                                 """)
                                 
                         st.download_button("📥 Exporter les données du Cluster (CSV)", data=df_global.to_csv().encode('utf-8'), file_name=f'ndvi_cluster_{cluster_choisi}.csv', mime='text/csv')
+                        st.markdown("---")
+                        st.markdown("### 🎬 Animation Spatio-Temporelle du Cluster")
+                        st.info("Générez un GIF pour visualiser l'évolution agricole tous les 10 jours durant la saison chaude (Avril-Octobre).")
+                        
+                        col_gif1, col_gif2 = st.columns([1, 2])
+                        with col_gif1:
+                            annee_gif = st.selectbox("Sélectionnez l'année :", range(2018, 2023), index=2)
+                            generer_gif = st.button("🪄 Générer le GIF Animé (2 FPS)", type="secondary")
+                            
+                        with col_gif2:
+                            if generer_gif:
+                                with st.spinner(f"Création de l'animation pour {annee_gif} (Téléchargement des images de {annee_gif}-04 à {annee_gif}-10)..."):
+                                    try:
+                                        gif_bytes = create_ndvi_gif(polygons, annee_gif)
+                                        
+                                        if gif_bytes:
+                                            # Affichage du GIF dans l'application
+                                            st.image(gif_bytes, use_container_width=True)
+                                            
+                                            # Bouton pour télécharger le GIF
+                                            st.download_button(
+                                                label="📥 Télécharger le GIF pour la soutenance",
+                                                data=gif_bytes,
+                                                file_name=f'NDVI_Cluster{cluster_choisi}_{annee_gif}.gif',
+                                                mime='image/gif'
+                                            )
+                                        else:
+                                            st.warning("Pas assez de données valides (ou trop de nuages) pour créer un GIF sur cette période.")
+                                    except Exception as e:
+                                        st.error(f"Erreur lors de la création du GIF : {e}")
 
+                        with st.expander("🧠 Comment utiliser ce GIF lors de la soutenance ?"):
+                            st.write("""
+                            **Mettez ce GIF dans votre présentation PowerPoint !**
+                            Il permet de démontrer visuellement ce que les équations expriment.
+                            - **La couleur :** Une saturation rapide vers le vert foncé avec des valeurs supérieures à 0.35 confirme l'irrigation intensive en plein été.
+                            - **Le timing :** Le jury verra concrètement que le pic de verdissement sur le GIF correspond très exactement au Lag de subsidence (le "creux" InSAR) sur les graphes de corrélation croisée.
+                            """)
                     except Exception as e:
                         st.error(f"Erreur d'extraction GEE : {e}")
 
