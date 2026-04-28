@@ -56,11 +56,11 @@ def get_ndvi_series(geo_dict, start_date, end_date):
     
     return df_15j
 
-def get_summer_ndvi_thumbs(geometry_coords, start_year, end_year):
+def get_summer_ndvi_thumbs(geo_dict, start_year, end_year):
     """
     Génère les URL des images NDVI moyennes (Juin à Août) pour chaque année.
     """
-    roi = ee.Geometry.Polygon(geometry_coords)
+    roi = ee.Geometry(geo_dict)
     urls = {}
     
     vis_params = {
