@@ -157,7 +157,7 @@ def get_soil_moisture_series(geo_dict, start_date, end_date):
         nmdi = image.expression(
             '(GREEN - NIR) / (NIR + GREEN)', {
                 'NIR': s2.select('B8A'),
-                'GREEN': s2.select('B03')
+                'GREEN': s2.select('B3')
             }
         ).rename('NMDI')
         
@@ -212,7 +212,7 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
         nmdi = s2_summer.expression(
             '(GREEN - NIR) / (NIR + GREEN)', {
                 'NIR': s2.select('B8A'),
-                'GREEN': s2.select('B03')
+                'GREEN': s2.select('B3')
             }
         ).rename('NMDI').clip(roi)
         
@@ -250,7 +250,7 @@ def create_sm_gif(geo_dict, year):
         nmdi = s2.expression(
             '(GREEN - NIR) / (NIR + GREEN)', {
                 'NIR': s2.select('B8A'),
-                'GREEN': s2.select('B03')
+                'GREEN': s2.select('B3')
             }
         ).rename('NMDI').clip(roi)
         
