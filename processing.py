@@ -16,11 +16,8 @@ def init_gee():
     ee.Initialize(credentials=credentials, project='training-462609')
 
 def get_ndvi_series(geo_dict, start_date, end_date):
-    """
-    Interroge GEE pour extraire le NDVI moyen tous les 15 jours.
-    """
-    # GEE détecte automatiquement si c'est un Polygon ou MultiPolygon via le dict GeoJSON
-    roi = ee.Geometry(geo_dict) 
+    """Interroge GEE pour extraire le NDVI moyen tous les 15 jours."""
+    roi = ee.Geometry(geo_dict)
     
     s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
         .filterBounds(roi) \
@@ -32,7 +29,7 @@ def get_ndvi_series(geo_dict, start_date, end_date):
         mean_dict = ndvi.reduceRegion(
             reducer=ee.Reducer.mean(),
             geometry=roi,
-            scale=30, # Échelle à 30m pour équilibrer précision et temps de calcul
+            scale=30,
             maxPixels=1e10
         )
         return ee.Feature(None, {
@@ -50,24 +47,22 @@ def get_ndvi_series(geo_dict, start_date, end_date):
             data.append({'Date': date, 'NDVI': ndvi_val})
             
     df = pd.DataFrame(data)
-    df['Date'] = pd.to_datetime(df['Date'])
-    df.set_index('Date', inplace=True)
-    df_15j = df.resample('15D').mean().interpolate(method='linear')
-    
-    # Ajout des colonnes pour l'analyse statistique du PFE
-    df_15j['Mois'] = df_15j.index.month
-    df_15j['Année'] = df_15j.index.year
-    df_15j['Saison'] = df_15j['Mois'].apply(lambda x: 'Été (Irrigation)' if x in [6, 7, 8] else 'Autre')
-    
-    return df_15j
+    if not df.empty:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df_15j = df.resample('15D').mean().interpolate(method='linear')
+        
+        # Ajout des colonnes pour l'analyse statistique
+        df_15j['Mois'] = df_15j.index.month
+        df_15j['Année'] = df_15j.index.year
+        df_15j['Saison'] = df_15j['Mois'].apply(lambda x: 'Été (Irrigation)' if x in [6, 7, 8] else 'Autre')
+        return df_15j
+    return pd.DataFrame()
 
 def get_summer_ndvi_thumbs(geo_dict, start_year, end_year):
-    """
-    Génère les URL des images NDVI moyennes (Juin à Août) pour chaque année.
-    """
+    """Génère les URL des images NDVI moyennes pour chaque été."""
     roi = ee.Geometry(geo_dict)
     urls = {}
-    
     vis_params = {
         'min': 0.0, 'max': 0.8,
         'palette': ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850']
@@ -90,33 +85,23 @@ def get_summer_ndvi_thumbs(geo_dict, start_year, end_year):
             urls[year] = url
         except:
             urls[year] = None
-            
     return urls
 
-
 def create_ndvi_gif(geo_dict, year):
-    """
-    Génère un GIF animé du NDVI (Avril - Octobre) avec un pas de 10 jours.
-    Incruste la date et une colorbar (0.15 - 0.35). FPS = 2.
-    """
+    """Génère un GIF animé du NDVI (Avril - Octobre)."""
     roi = ee.Geometry(geo_dict)
-    
-    # Création des intervalles de 10 jours entre Avril et Fin Octobre
     start_date = pd.to_datetime(f'{year}-04-01')
     end_date = pd.to_datetime(f'{year}-10-31')
     date_ranges = pd.date_range(start=start_date, end=end_date, freq='10D')
     
-    # Palette de couleurs (du rouge/sec au vert/dense)
     palette = ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850']
     vmin, vmax = 0.15, 0.35
-    
     frames = []
     
     for i in range(len(date_ranges)-1):
         d1 = date_ranges[i].strftime('%Y-%m-%d')
         d2 = date_ranges[i+1].strftime('%Y-%m-%d')
         
-        # Filtre de la collection sur les 10 jours
         s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(roi) \
             .filterDate(d1, d2) \
@@ -125,31 +110,24 @@ def create_ndvi_gif(geo_dict, year):
         ndvi = s2.normalizedDifference(['B8', 'B4']).rename('NDVI').clip(roi)
         
         try:
-            # Récupération de l'image de GEE
             url = ndvi.getThumbURL({
-                'min': vmin,
-                'max': vmax,
-                'palette': palette,
-                'dimensions': 600, # Résolution de l'image
-                'format': 'png'
+                'min': vmin, 'max': vmax, 'palette': palette,
+                'dimensions': 600, 'format': 'png'
             })
             response = requests.get(url)
             img = Image.open(io.BytesIO(response.content))
             
-            # --- Habillage avec Matplotlib (Titre + Colorbar) ---
             fig, ax = plt.subplots(figsize=(8, 6))
             ax.imshow(img)
             ax.set_title(f"Évolution NDVI : {d1} au {d2}", fontsize=14, fontweight='bold')
-            ax.axis('off') # On cache les axes de coordonnées bruts
+            ax.axis('off')
             
-            # Création de la barre de légende
             cmap = LinearSegmentedColormap.from_list('ndvi', palette)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
             sm.set_array([])
             cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
             cbar.set_label('NDVI', fontsize=12, fontweight='bold')
             
-            # Sauvegarde de la figure assemblée dans la mémoire vive
             buf = io.BytesIO()
             plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white')
             plt.close(fig)
@@ -157,23 +135,17 @@ def create_ndvi_gif(geo_dict, year):
             
             frames.append(Image.open(buf))
         except Exception as e:
-            # S'il y a trop de nuages ou aucune image sur ces 10 jours, on passe
             continue
             
-    if not frames:
+    if not frames: 
         return None
         
-        
-    # Compilation du GIF en mémoire (2 FPS = 500 ms par frame)
     gif_buf = io.BytesIO()
     frames[0].save(gif_buf, format='GIF', save_all=True, append_images=frames[1:], duration=500, loop=0)
-    
     return gif_buf.getvalue()
+
 def get_soil_moisture_series(geo_dict, start_date, end_date):
-    """
-    Extrait l'indice d'humidité du sol NMDI.
-    Sépare l'humidité du sol de celle de la végétation en exploitant la différence des bandes SWIR.
-    """
+    """Extrait l'indice d'humidité du sol NMDI."""
     roi = ee.Geometry(geo_dict)
     
     s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
@@ -182,7 +154,6 @@ def get_soil_moisture_series(geo_dict, start_date, end_date):
         .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
         
     def add_nmdi(image):
-        # Calcul du NMDI : (B8A - (B11 - B12)) / (B8A + (B11 - B12))
         nmdi = image.expression(
             '(NIR - (SWIR1 - SWIR2)) / (NIR + (SWIR1 - SWIR2))', {
                 'NIR': image.select('B8A'),
@@ -191,7 +162,6 @@ def get_soil_moisture_series(geo_dict, start_date, end_date):
             }
         ).rename('NMDI')
         
-        # Les bandes SWIR de Sentinel-2 sont à 20m de résolution
         mean_dict = nmdi.reduceRegion(
             reducer=ee.Reducer.mean(),
             geometry=roi,
@@ -213,22 +183,23 @@ def get_soil_moisture_series(geo_dict, start_date, end_date):
             data.append({'Date': date, 'NMDI': val})
             
     df = pd.DataFrame(data)
-    df['Date'] = pd.to_datetime(df['Date'])
-    df.set_index('Date', inplace=True)
-    df_15j = df.resample('15D').mean().interpolate(method='linear')
-    return df_15j
+    if not df.empty:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df_15j = df.resample('15D').mean().interpolate(method='linear')
+        
+        df_15j['Mois'] = df_15j.index.month
+        df_15j['Année'] = df_15j.index.year
+        df_15j['Saison'] = df_15j['Mois'].apply(lambda x: 'Été (Irrigation)' if x in [6, 7, 8] else 'Autre')
+        return df_15j
+    return pd.DataFrame()
 
 def get_summer_sm_thumbs(geo_dict, start_year, end_year):
-    """
-    Génère les URL des images d'humidité du sol (NMDI) pour chaque été.
-    """
+    """Génère les URL des images NMDI pour chaque été."""
     roi = ee.Geometry(geo_dict)
     urls = {}
-    
-    # Palette : Marron (Sec) -> Blanc -> Bleu (Humide)
     vis_params = {
-        'min': 0.4, 
-        'max': 0.8,
+        'min': 0.4, 'max': 0.8,
         'palette': ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e']
     }
     
@@ -257,21 +228,16 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
             urls[year] = None
             
     return urls
-    
-    def create_sm_gif(geo_dict, year):
-    """
-    Génère un GIF animé de l'humidité du sol (NMDI) (Avril - Octobre) avec un pas de 10 jours.
-    """
+
+def create_sm_gif(geo_dict, year):
+    """Génère un GIF animé de l'humidité du sol (NMDI)."""
     roi = ee.Geometry(geo_dict)
-    
     start_date = pd.to_datetime(f'{year}-04-01')
     end_date = pd.to_datetime(f'{year}-10-31')
     date_ranges = pd.date_range(start=start_date, end=end_date, freq='10D')
     
-    # Palette NMDI : Marron (sec) -> Blanc -> Bleu/Turquoise (Humide saturé)
     palette = ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e']
     vmin, vmax = 0.4, 0.8
-    
     frames = []
     
     for i in range(len(date_ranges)-1):
@@ -283,7 +249,6 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
             .filterDate(d1, d2) \
             .median()
         
-        # Calcul NMDI
         nmdi = s2.expression(
             '(NIR - (SWIR1 - SWIR2)) / (NIR + (SWIR1 - SWIR2))', {
                 'NIR': s2.select('B8A'),
@@ -305,7 +270,6 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
             ax.set_title(f"Humidité du Sol NMDI : {d1} au {d2}", fontsize=14, fontweight='bold')
             ax.axis('off') 
             
-            from matplotlib.colors import LinearSegmentedColormap
             cmap = LinearSegmentedColormap.from_list('nmdi', palette)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
             sm.set_array([])
@@ -321,10 +285,9 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
         except Exception as e:
             continue
             
-    if not frames:
+    if not frames: 
         return None
         
     gif_buf = io.BytesIO()
     frames[0].save(gif_buf, format='GIF', save_all=True, append_images=frames[1:], duration=500, loop=0)
-    
     return gif_buf.getvalue()
