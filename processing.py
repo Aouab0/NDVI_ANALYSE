@@ -257,3 +257,73 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
             urls[year] = None
             
     return urls
+    def create_sm_gif(geo_dict, year):
+    """
+    Génère un GIF animé de l'humidité du sol (NMDI) (Avril - Octobre) avec un pas de 10 jours.
+    """
+    roi = ee.Geometry(geo_dict)
+    
+    start_date = pd.to_datetime(f'{year}-04-01')
+    end_date = pd.to_datetime(f'{year}-10-31')
+    date_ranges = pd.date_range(start=start_date, end=end_date, freq='10D')
+    
+    # Palette NMDI : Marron (sec) -> Blanc -> Bleu/Turquoise (Humide saturé)
+    palette = ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e']
+    vmin, vmax = 0.4, 0.8
+    
+    frames = []
+    
+    for i in range(len(date_ranges)-1):
+        d1 = date_ranges[i].strftime('%Y-%m-%d')
+        d2 = date_ranges[i+1].strftime('%Y-%m-%d')
+        
+        s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+            .filterBounds(roi) \
+            .filterDate(d1, d2) \
+            .median()
+        
+        # Calcul NMDI
+        nmdi = s2.expression(
+            '(NIR - (SWIR1 - SWIR2)) / (NIR + (SWIR1 - SWIR2))', {
+                'NIR': s2.select('B8A'),
+                'SWIR1': s2.select('B11'),
+                'SWIR2': s2.select('B12')
+            }
+        ).rename('NMDI').clip(roi)
+        
+        try:
+            url = nmdi.getThumbURL({
+                'min': vmin, 'max': vmax, 'palette': palette,
+                'dimensions': 600, 'format': 'png'
+            })
+            response = requests.get(url)
+            img = Image.open(io.BytesIO(response.content))
+            
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.imshow(img)
+            ax.set_title(f"Humidité du Sol NMDI : {d1} au {d2}", fontsize=14, fontweight='bold')
+            ax.axis('off') 
+            
+            from matplotlib.colors import LinearSegmentedColormap
+            cmap = LinearSegmentedColormap.from_list('nmdi', palette)
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
+            sm.set_array([])
+            cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label('NMDI', fontsize=12, fontweight='bold')
+            
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', facecolor='white')
+            plt.close(fig)
+            buf.seek(0)
+            
+            frames.append(Image.open(buf))
+        except Exception as e:
+            continue
+            
+    if not frames:
+        return None
+        
+    gif_buf = io.BytesIO()
+    frames[0].save(gif_buf, format='GIF', save_all=True, append_images=frames[1:], duration=500, loop=0)
+    
+    return gif_buf.getvalue()
