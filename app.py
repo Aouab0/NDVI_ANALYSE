@@ -11,7 +11,7 @@ import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
-from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs, create_ndvi_gif, get_soil_moisture_series, get_summer_sm_thumbs
+from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs, create_ndvi_gif, get_soil_moisture_series, get_summer_sm_thumbs, create_sm_gif
 
 st.set_page_config(page_title="PFE - Analyse Hydro-Agricole", layout="wide")
 
