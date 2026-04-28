@@ -13,9 +13,8 @@ def init_gee():
 def get_ndvi_series(geometry_coords, start_date, end_date):
     """
     Interroge GEE pour extraire le NDVI moyen tous les 15 jours.
-    Accepte directement les coordonnées GeoJSON.
     """
-    roi = ee.Geometry.Polygon(geometry_coords)
+    roi = ee.Geometry.MultiPolygon(geometry_coords) if isinstance(geometry_coords[0], list) else ee.Geometry.Polygon(geometry_coords)
     
     s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
         .filterBounds(roi) \
@@ -27,7 +26,7 @@ def get_ndvi_series(geometry_coords, start_date, end_date):
         mean_dict = ndvi.reduceRegion(
             reducer=ee.Reducer.mean(),
             geometry=roi,
-            scale=10, # Pour une parcelle dessinée, on peut utiliser 10m (résolution native S2)
+            scale=30, # Échelle à 30m pour équilibrer précision et temps de calcul
             maxPixels=1e10
         )
         return ee.Feature(None, {
@@ -48,6 +47,12 @@ def get_ndvi_series(geometry_coords, start_date, end_date):
     df['Date'] = pd.to_datetime(df['Date'])
     df.set_index('Date', inplace=True)
     df_15j = df.resample('15D').mean().interpolate(method='linear')
+    
+    # Ajout des colonnes pour l'analyse statistique du PFE
+    df_15j['Mois'] = df_15j.index.month
+    df_15j['Année'] = df_15j.index.year
+    df_15j['Saison'] = df_15j['Mois'].apply(lambda x: 'Été (Irrigation)' if x in [6, 7, 8] else 'Autre')
+    
     return df_15j
 
 def get_summer_ndvi_thumbs(geometry_coords, start_year, end_year):
@@ -57,35 +62,27 @@ def get_summer_ndvi_thumbs(geometry_coords, start_year, end_year):
     roi = ee.Geometry.Polygon(geometry_coords)
     urls = {}
     
-    # Palette classique NDVI : Rouge (sec/nu) -> Jaune -> Vert (végétation dense)
     vis_params = {
-        'min': 0.0,
-        'max': 0.8,
+        'min': 0.0, 'max': 0.8,
         'palette': ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850']
     }
     
     for year in range(start_year, end_year + 1):
-        # Filtre sur l'été (1er Juin au 31 Août)
         s2_summer = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(roi) \
             .filterDate(f'{year}-06-01', f'{year}-08-31') \
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
-            .median() # Médiane pour enlever les derniers nuages
+            .median()
             
-        ndvi = s2_summer.normalizedDifference(['B8', 'B4']).rename('NDVI')
-        ndvi_clipped = ndvi.clip(roi)
+        ndvi = s2_summer.normalizedDifference(['B8', 'B4']).rename('NDVI').clip(roi)
         
-        # Demander à GEE de générer une image PNG de la zone
         try:
-            url = ndvi_clipped.getThumbURL({
-                'min': vis_params['min'],
-                'max': vis_params['max'],
-                'palette': vis_params['palette'],
-                'dimensions': 400, # Résolution de l'image de retour
-                'format': 'png'
+            url = ndvi.getThumbURL({
+                'min': vis_params['min'], 'max': vis_params['max'],
+                'palette': vis_params['palette'], 'dimensions': 400, 'format': 'png'
             })
             urls[year] = url
-        except Exception as e:
-            urls[year] = None # Si pas de données pour cette année
+        except:
+            urls[year] = None
             
     return urls
