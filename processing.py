@@ -257,6 +257,7 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
             urls[year] = None
             
     return urls
+    
     def create_sm_gif(geo_dict, year):
     """
     Génère un GIF animé de l'humidité du sol (NMDI) (Avril - Octobre) avec un pas de 10 jours.
