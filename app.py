@@ -9,6 +9,8 @@ import numpy as np
 import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
+from shapely.geometry import shape, mapping
+from shapely.ops import unary_union
 
 from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs
 
@@ -38,10 +40,20 @@ def load_cluster_polygons(tif_path, target_cluster):
     
     polygons = []
     for res in results:
-        # Simplification légère pour ne pas surcharger l'API GEE
-        geom = shape(res['geometry']).simplify(0.001)
-        polygons.append(geom.__geo_interface__['coordinates'])
-    return polygons
+        geom = shape(res['geometry'])
+        # FILTRE : On ignore les minuscules pixels orphelins pour ne pas faire crasher GEE
+        # (0.00005 degrés carré élimine le bruit InSAR isolé)
+        if geom.area > 0.00005: 
+            polygons.append(geom)
+            
+    if not polygons:
+        return None
+        
+    # FUSION : On combine tout en un seul objet propre et on simplifie les bordures
+    merged_geom = unary_union(polygons).simplify(0.001)
+    
+    # mapping() convertit l'objet Shapely en un dictionnaire GeoJSON parfait pour GEE
+    return mapping(merged_geom)
 
 @st.cache_data
 def get_raster_overlay(tif_path):
