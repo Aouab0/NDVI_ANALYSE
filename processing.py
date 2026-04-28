@@ -1,36 +1,33 @@
 import ee
 import pandas as pd
 import streamlit as st
-def init_gee():
-        """Initialise la connexion à Earth Engine"""
-        credentials = ee.ServiceAccountCredentials(
-            email=st.secrets["earth_engine"]["client_email"],
-            key_data=st.secrets["earth_engine"]["private_key"]
-        )
-        ee.Initialize(credentials=credentials, project='training-462609')
 
-def get_ndvi_series(geojson_polygons, start_date, end_date):
+def init_gee():
+    """Initialise la connexion à Earth Engine via Service Account"""
+    credentials = ee.ServiceAccountCredentials(
+        email=st.secrets["earth_engine"]["client_email"],
+        key_data=st.secrets["earth_engine"]["private_key"]
+    )
+    ee.Initialize(credentials=credentials, project='training-462609')
+
+def get_ndvi_series(geometry_coords, start_date, end_date):
     """
-    Interroge GEE pour extraire le NDVI moyen tous les 15 jours sur une zone.
+    Interroge GEE pour extraire le NDVI moyen tous les 15 jours.
+    Accepte directement les coordonnées GeoJSON.
     """
-    # Création de la géométrie GEE à partir des polygones locaux
-    roi = ee.Geometry.MultiPolygon(geojson_polygons)
+    roi = ee.Geometry.Polygon(geometry_coords)
     
-    # Sentinel-2 harmonisé (Surface Reflectance)
     s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
         .filterBounds(roi) \
         .filterDate(start_date, end_date) \
         .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
         
     def add_ndvi(image):
-        # Calcul du NDVI: (B8 - B4) / (B8 + B4)
         ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI')
-        # Réduction (moyenne) sur notre zone d'intérêt
-        # Scale à 100m (au lieu de 10m) pour éviter les timeouts serveur sur de grandes zones
         mean_dict = ndvi.reduceRegion(
             reducer=ee.Reducer.mean(),
             geometry=roi,
-            scale=100, 
+            scale=10, # Pour une parcelle dessinée, on peut utiliser 10m (résolution native S2)
             maxPixels=1e10
         )
         return ee.Feature(None, {
@@ -38,10 +35,8 @@ def get_ndvi_series(geojson_polygons, start_date, end_date):
             'NDVI': mean_dict.get('NDVI')
         })
 
-    # Extraction des données via map()
     timeseries = s2.map(add_ndvi).getInfo()
     
-    # Transformation en DataFrame Pandas
     data = []
     for feature in timeseries['features']:
         date = feature['properties']['date']
@@ -52,7 +47,45 @@ def get_ndvi_series(geojson_polygons, start_date, end_date):
     df = pd.DataFrame(data)
     df['Date'] = pd.to_datetime(df['Date'])
     df.set_index('Date', inplace=True)
-    
-    # Lissage et regroupement par quinzaine (15 jours) pour nettoyer les nuages résiduels
     df_15j = df.resample('15D').mean().interpolate(method='linear')
     return df_15j
+
+def get_summer_ndvi_thumbs(geometry_coords, start_year, end_year):
+    """
+    Génère les URL des images NDVI moyennes (Juin à Août) pour chaque année.
+    """
+    roi = ee.Geometry.Polygon(geometry_coords)
+    urls = {}
+    
+    # Palette classique NDVI : Rouge (sec/nu) -> Jaune -> Vert (végétation dense)
+    vis_params = {
+        'min': 0.0,
+        'max': 0.8,
+        'palette': ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#d9ef8b', '#a6d96a', '#66bd63', '#1a9850']
+    }
+    
+    for year in range(start_year, end_year + 1):
+        # Filtre sur l'été (1er Juin au 31 Août)
+        s2_summer = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+            .filterBounds(roi) \
+            .filterDate(f'{year}-06-01', f'{year}-08-31') \
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
+            .median() # Médiane pour enlever les derniers nuages
+            
+        ndvi = s2_summer.normalizedDifference(['B8', 'B4']).rename('NDVI')
+        ndvi_clipped = ndvi.clip(roi)
+        
+        # Demander à GEE de générer une image PNG de la zone
+        try:
+            url = ndvi_clipped.getThumbURL({
+                'min': vis_params['min'],
+                'max': vis_params['max'],
+                'palette': vis_params['palette'],
+                'dimensions': 400, # Résolution de l'image de retour
+                'format': 'png'
+            })
+            urls[year] = url
+        except Exception as e:
+            urls[year] = None # Si pas de données pour cette année
+            
+    return urls
