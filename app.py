@@ -183,18 +183,19 @@ with tab2:
         
         st_data = st_folium(m, height=500, use_container_width=True)
 
-    drawn_polygon = None
+    drawn_geometry = None
     if st_data["last_active_drawing"]:
-        drawn_polygon = st_data["last_active_drawing"]["geometry"]["coordinates"]
+        drawn_geometry = st_data["last_active_drawing"]["geometry"] 
 
     with col_results:
-        if drawn_polygon:
+        if drawn_geometry: # <--- Modification ici
             st.success("Parcelle capturée ! Analyse en cours...")
             start_yr, end_yr = 2018, 2022
             
             with st.spinner("Extraction de la dynamique locale..."):
                 try:
-                    df_local = get_ndvi_series(drawn_polygon, f'{start_yr}-01-01', f'{end_yr}-12-31')
+                    # On passe "drawn_geometry" directement à GEE
+                    df_local = get_ndvi_series(drawn_geometry, f'{start_yr}-01-01', f'{end_yr}-12-31')
                     
                     fig, ax = plt.subplots(figsize=(10, 3.5))
                     ax.plot(df_local.index, df_local['NDVI'], color='darkgreen', linewidth=2)
