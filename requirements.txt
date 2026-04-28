@@ -8,3 +8,4 @@ shapely
 pandas
 matplotlib
 numpy
+seaborn
