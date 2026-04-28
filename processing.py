@@ -10,11 +10,12 @@ def init_gee():
     )
     ee.Initialize(credentials=credentials, project='training-462609')
 
-def get_ndvi_series(geometry_coords, start_date, end_date):
+def get_ndvi_series(geo_dict, start_date, end_date):
     """
     Interroge GEE pour extraire le NDVI moyen tous les 15 jours.
     """
-    roi = ee.Geometry.MultiPolygon(geometry_coords) if isinstance(geometry_coords[0], list) else ee.Geometry.Polygon(geometry_coords)
+    # GEE détecte automatiquement si c'est un Polygon ou MultiPolygon via le dict GeoJSON
+    roi = ee.Geometry(geo_dict) 
     
     s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
         .filterBounds(roi) \
