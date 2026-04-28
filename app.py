@@ -11,7 +11,7 @@ import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
-from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs, create_ndvi_gif
+from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs, create_ndvi_gif, get_soil_moisture_series, get_summer_sm_thumbs
 
 st.set_page_config(page_title="PFE - Analyse Hydro-Agricole", layout="wide")
 
@@ -72,7 +72,11 @@ def get_raster_overlay(tif_path):
 # =====================================================================
 # --- ONGLETS DE L'APPLICATION ---
 # =====================================================================
-tab1, tab2 = st.tabs(["📊 1. Analyse Globale par Cluster (Extraction PFE)", "✍️ 2. Analyse Interactive (Ciblage Parcelle)"])
+tab1, tab2, tab3 = st.tabs([
+    "📊 1. Analyse Globale par Cluster", 
+    "✍️ 2. Analyse Interactive (NDVI)", 
+    "💧 3. Analyse Humidité du Sol (NMDI)"
+])
 
 # ---------------------------------------------------------------------
 # ONGLET 1 : ANALYSE GLOBALE PAR CLUSTER
@@ -265,3 +269,77 @@ with tab2:
                     st.error(f"Erreur images : {e}")
         else:
             st.info("👈 Dessinez une zone sur la carte pour générer les graphiques locaux.")
+# ---------------------------------------------------------------------
+# ONGLET 3 : ANALYSE INTERACTIVE D'HUMIDITÉ DU SOL (NMDI)
+# ---------------------------------------------------------------------
+with tab3:
+    st.markdown("### Évaluation de l'Humidité du Sol par l'Indice NMDI")
+    st.info("💡 **Aide PFE :** Contrairement au NDVI qui mesure la chlorophylle, le NMDI (Normalized Multi-band Drought Index) exploite la différence entre deux bandes Infrarouge (SWIR 1 et SWIR 2) pour isoler l'humidité contenue dans la terre nue et atténuer l'effet de l'eau contenue dans les feuilles. C'est le meilleur indicateur pour prouver qu'un sol est saturé d'eau (irrigation).")
+    
+    col_map_sm, col_results_sm = st.columns([1, 1])
+    
+    with col_map_sm:
+        m_sm = folium.Map(location=[CENTER_LAT, CENTER_LON], zoom_start=11)
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri', name='Esri Satellite'
+        ).add_to(m_sm)
+        
+        try:
+            rgba_image, bbox = get_raster_overlay("clusters.tif")
+            folium.raster_layers.ImageOverlay(
+                image=rgba_image, bounds=bbox, opacity=0.5, name='Clusters InSAR'
+            ).add_to(m_sm)
+        except: pass
+        
+        Draw(
+            export=False, position='topleft',
+            draw_options={'polyline': False, 'rectangle': True, 'circle': False, 'marker': False, 'circlemarker': False},
+            edit_options={'edit': False}
+        ).add_to(m_sm)
+        
+        st_data_sm = st_folium(m_sm, height=500, use_container_width=True, key="sm_map")
+
+    drawn_geometry_sm = None
+    if st_data_sm["last_active_drawing"]:
+        drawn_geometry_sm = st_data_sm["last_active_drawing"]["geometry"] 
+
+    with col_results_sm:
+        if drawn_geometry_sm:
+            st.success("Parcelle capturée ! Extraction de l'humidité du sol en cours...")
+            start_yr, end_yr = 2018, 2022
+            
+            with st.spinner("Extraction de la dynamique NMDI..."):
+                try:
+                    df_local_sm = get_soil_moisture_series(drawn_geometry_sm, f'{start_yr}-01-01', f'{end_yr}-12-31')
+                    
+                    fig, ax = plt.subplots(figsize=(10, 3.5))
+                    # La couleur bleue représente l'humidité
+                    ax.plot(df_local_sm.index, df_local_sm['NMDI'], color='#01665e', linewidth=2)
+                    ax.set_title("Dynamique de l'humidité du sol (Indice NMDI)")
+                    ax.set_ylabel("NMDI")
+                    ax.grid(True, alpha=0.3)
+                    st.pyplot(fig)
+                    
+                    st.download_button("📥 Exporter la série d'humidité (CSV)", data=df_local_sm.to_csv().encode('utf-8'), file_name='humidite_sol_locale.csv')
+                except Exception as e:
+                    st.error(f"Erreur d'extraction : {e}")
+
+            with st.spinner("Génération des Cartes Thermiques d'Humidité Estivales..."):
+                try:
+                    thumbs_sm = get_summer_sm_thumbs(drawn_geometry_sm, start_yr, end_yr)
+                    st.markdown("#### Saturation en Eau du Sol (Juin - Août)")
+                    
+                    cols_img_sm = st.columns(len(thumbs_sm))
+                    for idx, (year, url) in enumerate(thumbs_sm.items()):
+                        with cols_img_sm[idx]:
+                            st.markdown(f"**Été {year}**")
+                            if url: st.image(url, use_container_width=True)
+                            else: st.write("ND")
+                            
+                    with st.expander("🧠 Comment exploiter l'humidité dans le PFE ?"):
+                        st.write("Si les courbes NDVI (onglet 2) montrent une forte végétation, mais que la courbe NMDI ci-dessus montre **des valeurs très élevées en été** (sols saturés représentés en bleu sur les vignettes), cela confirme qu'il ne s'agit pas de plantes résistantes à la sécheresse, mais bien d'une irrigation artificielle massive. C'est l'argument final pour lier l'agriculture à l'épuisement de l'aquifère et à la déformation (InSAR).")
+                except Exception as e:
+                    st.error(f"Erreur images : {e}")
+        else:
+            st.info("👈 Dessinez une zone sur la carte pour évaluer l'humidité du sol.")
