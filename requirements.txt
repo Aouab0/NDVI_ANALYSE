@@ -1,0 +1,7 @@
+streamlit
+earthengine-api
+rasterio
+geopandas
+shapely
+pandas
+matplotlib
