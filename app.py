@@ -1,96 +1,161 @@
 import streamlit as st
 import rasterio
-import pandas as pd
 from rasterio.features import shapes
-from shapely.geometry import shape
 import matplotlib.pyplot as plt
-from processing import init_gee, get_ndvi_series
+import pandas as pd
+import numpy as np
+import folium
+from folium.plugins import Draw
+from streamlit_folium import st_folium
 
-st.set_page_config(page_title="Analyse NDVI par Cluster", layout="wide")
+from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs
 
-st.title("🌱 Analyse Spatiale du NDVI par Cluster (InSAR)")
-st.write("Cette application extrait l'historique NDVI Sentinel-2 pour chaque cluster de déformation.")
+st.set_page_config(page_title="PFE - Analyse NDVI par Cluster", layout="wide")
 
-# 1. Initialisation GEE
+# Couleurs des clusters (identiques à ton code local)
+CLUSTER_COLORS = ['#d62728', '#1f77b4', '#2ca02c', '#ff7f0e'] # Rouge, Bleu, Vert, Orange
+# Coordonnées centrales approximatives du Gharb (à ajuster selon ta zone)
+CENTER_LAT, CENTER_LON = 34.3, -6.1 
+
+st.title("🌱 Analyse Spatiale du NDVI et Subsidence (InSAR)")
+
 with st.spinner("Connexion à Google Earth Engine..."):
     init_gee()
 
-# 2. Lecture du Raster local
 @st.cache_data
 def load_cluster_polygons(tif_path, target_cluster):
-    """
-    Lit le .tif et transforme les pixels d'un cluster spécifique en polygones vectoriels.
-    """
+    # (Garde ta fonction load_cluster_polygons exacte ici comme dans le message précédent)
+    pass 
+
+@st.cache_data
+def get_raster_overlay(tif_path):
+    """Crée une image RGBA à partir du TIF pour l'afficher sur Folium"""
     with rasterio.open(tif_path) as src:
         image = src.read(1)
-        transform = src.transform
+        bounds = src.bounds
         
-    # Masque strict sur le cluster choisi
-    mask = (image == target_cluster)
-    
-    if not mask.any():
-        return None
+        # Convertir les coordonnées du Bounding Box
+        # Attention : Folium utilise [lat_min, lon_min], [lat_max, lon_max]
+        # rasterio bounds = (left/lon_min, bottom/lat_min, right/lon_max, top/lat_max)
+        bbox = [[bounds.bottom, bounds.left], [bounds.top, bounds.right]]
         
-    # Vectorisation des pixels en polygones (GeoJSON natif)
-    results = (
-        {'properties': {'raster_val': v}, 'geometry': s}
-        for i, (s, v) 
-        in enumerate(shapes(image, mask=mask, transform=transform))
-    )
-    
-    # Extraction des coordonnées pour GEE
-    polygons = []
-    for res in results:
-        polygons.append(res['geometry']['coordinates'])
+        # Créer une image RGBA
+        rgba = np.zeros((image.shape[0], image.shape[1], 4), dtype=np.uint8)
         
-    return polygons
-
-# --- Interface Utilisateur ---
-col1, col2 = st.columns([1, 3])
-
-with col1:
-    st.subheader("Paramètres")
-    cluster_choisi = st.selectbox("Sélectionnez un Cluster :", [0, 1, 2, 3])
-    start_date = st.date_input("Date de début", value=pd.to_datetime("2015-06-01"))
-    end_date = st.date_input("Date de fin", value=pd.to_datetime("2021-12-31"))
-    
-    lancer = st.button("Lancer l'analyse NDVI", type="primary")
-
-with col2:
-    if lancer:
-        st.info(f"Vectorisation du Cluster {cluster_choisi} en cours...")
-        polygons = load_cluster_polygons("clusters.tif", cluster_choisi)
-        
-        if polygons is None:
-            st.error("Aucun pixel trouvé pour ce cluster.")
-        else:
-            st.success(f"Cluster vectorisé ! Interrogation de GEE pour la période sélectionnée...")
+        # Appliquer les couleurs
+        for c_id, hex_col in enumerate(CLUSTER_COLORS):
+            # Convertir HEX en RGB
+            h = hex_col.lstrip('#')
+            rgb = tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
             
-            with st.spinner("GEE calcule l'historique NDVI (cela peut prendre 1 à 2 minutes)..."):
+            mask = (image == c_id)
+            rgba[mask, 0] = rgb[0]
+            rgba[mask, 1] = rgb[1]
+            rgba[mask, 2] = rgb[2]
+            rgba[mask, 3] = 128 # Transparence (Alpha) à 50%
+            
+        return rgba, bbox
+
+# =====================================================================
+# --- CRÉATION DES ONGLETS ---
+# =====================================================================
+tab1, tab2 = st.tabs(["📊 Analyse par Cluster (Globale)", "✍️ Analyse Interactive sur Carte (Locale)"])
+
+# ---------------------------------------------------------
+# ONGLET 1 : ANALYSE GLOBALE (Ton code précédent va ici)
+# ---------------------------------------------------------
+with tab1:
+    st.write("Sélectionnez un cluster pour voir la dynamique végétale de toute la zone.")
+    # ... Mets ici ton code précédent avec col1, col2, le selectbox et st.pyplot() ...
+
+# ---------------------------------------------------------
+# ONGLET 2 : ANALYSE INTERACTIVE (Nouveau)
+# ---------------------------------------------------------
+with tab2:
+    st.markdown("### Dessinez une zone (polygone) sur la carte pour analyser la dynamique NDVI locale.")
+    
+    col_map, col_results = st.columns([1, 1])
+    
+    with col_map:
+        # Création de la carte Folium
+        m = folium.Map(location=[CENTER_LAT, CENTER_LON], zoom_start=11)
+        
+        # Ajout du fond de carte Satellite
+        folium.TileLayer(
+            tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri',
+            name='Esri Satellite',
+            overlay=False,
+            control=True
+        ).add_to(m)
+        
+        # Ajout de la couche Clusters (depuis le .tif)
+        try:
+            rgba_image, bbox = get_raster_overlay("clusters.tif")
+            folium.raster_layers.ImageOverlay(
+                image=rgba_image,
+                bounds=bbox,
+                opacity=0.6,
+                name='Clusters InSAR',
+                interactive=True,
+                cross_origin=False,
+            ).add_to(m)
+        except Exception as e:
+            st.warning("Le fichier clusters.tif n'a pas pu être chargé sur la carte.")
+        
+        # Ajout des outils de dessin (uniquement Polygone)
+        Draw(
+            export=False,
+            position='topleft',
+            draw_options={'polyline': False, 'rectangle': True, 'circle': False, 'marker': False, 'circlemarker': False},
+            edit_options={'edit': False}
+        ).add_to(m)
+        
+        folium.LayerControl().add_to(m)
+        
+        # Affichage de la carte dans Streamlit
+        st_data = st_folium(m, height=500, use_container_width=True)
+
+    # Récupération de la zone dessinée
+    drawn_polygon = None
+    if st_data["last_active_drawing"]:
+        drawn_polygon = st_data["last_active_drawing"]["geometry"]["coordinates"]
+
+    with col_results:
+        if drawn_polygon:
+            st.success("Zone sélectionnée ! Extraction des données en cours...")
+            
+            start_yr, end_yr = 2018, 2021 # Ajuste selon tes années d'étude
+            
+            with st.spinner("1. Extraction de la Série Temporelle (15 jours)..."):
                 try:
-                    # Conversion des dates pour GEE
-                    start_str = start_date.strftime('%Y-%m-%d')
-                    end_str = end_date.strftime('%Y-%m-%d')
+                    df_local = get_ndvi_series(drawn_polygon, f'{start_yr}-01-01', f'{end_yr}-12-31')
                     
-                    df_ndvi = get_ndvi_series(polygons, start_str, end_str)
-                    
-                    # --- Affichage du Graphique ---
-                    fig, ax = plt.subplots(figsize=(12, 4))
-                    ax.plot(df_ndvi.index, df_ndvi['NDVI'], color='green', linewidth=2, marker='.')
-                    ax.set_title(f"Évolution de la vigueur végétale (NDVI) - Cluster {cluster_choisi}")
+                    fig, ax = plt.subplots(figsize=(10, 4))
+                    ax.plot(df_local.index, df_local['NDVI'], color='green', linewidth=2)
+                    ax.set_title(f"Série temporelle NDVI sur la parcelle dessinée")
                     ax.set_ylabel("NDVI Moyen")
                     ax.grid(True, alpha=0.3)
-                    
                     st.pyplot(fig)
-                    
-                    # Téléchargement des données
-                    csv = df_ndvi.to_csv().encode('utf-8')
-                    st.download_button(
-                        label="📥 Télécharger la série NDVI en CSV",
-                        data=csv,
-                        file_name=f'ndvi_cluster_{cluster_choisi}.csv',
-                        mime='text/csv',
-                    )
-                    
                 except Exception as e:
-                    st.error(f"Une erreur GEE est survenue : {e}")
+                    st.error(f"Erreur série temporelle : {e}")
+
+            with st.spinner("2. Génération des Cartes NDVI Estivales..."):
+                try:
+                    thumbs = get_summer_ndvi_thumbs(drawn_polygon, start_yr, end_yr)
+                    
+                    st.markdown("#### Évolution Spatiale du NDVI en Été (Juin - Août)")
+                    # Création de colonnes dynamiques pour afficher les images côte à côte
+                    cols_img = st.columns(len(thumbs))
+                    for idx, (year, url) in enumerate(thumbs.items()):
+                        with cols_img[idx]:
+                            st.markdown(f"**{year}**")
+                            if url:
+                                st.image(url, use_container_width=True)
+                            else:
+                                st.write("Aucune donnée")
+                except Exception as e:
+                    st.error(f"Erreur cartes estivales : {e}")
+                    
+        else:
+            st.info("👈 Utilisez l'outil de dessin (carré/polygone) sur la carte de gauche pour commencer.")
