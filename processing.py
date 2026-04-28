@@ -250,10 +250,9 @@ def create_sm_gif(geo_dict, year):
             .median()
         
         nmdi = s2.expression(
-            '(NIR - (SWIR1 - SWIR2)) / (NIR + (SWIR1 - SWIR2))', {
+            '(GREEN - NIR)) / (NIR + GREEN)', {
                 'NIR': s2.select('B8A'),
-                'SWIR1': s2.select('B11'),
-                'SWIR2': s2.select('B12')
+                'GREEN': s2.select('B03')
             }
         ).rename('NMDI').clip(roi)
         
