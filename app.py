@@ -346,99 +346,102 @@ with tab3:
             st.info("👈 Dessinez une zone sur la carte pour évaluer l'humidité du sol.")
             
 # ---------------------------------------------------------------------
-# ONGLET 4 : ANALYSE GLOBALE DE L'HUMIDITÉ DU SOL PAR CLUSTER (NMDI)
+# ONGLET 4 : ANALYSE GLOBALE DE L'HUMIDITÉ PAR CLUSTER (NDWI)
 # ---------------------------------------------------------------------
 with tab4:
-    st.markdown("### Saturation Hydrique des Sols (Indice NMDI)")
-    st.info("💡 **Aide PFE :** Contrairement au NDVI qui mesure la verdure des feuilles, le NMDI exploite les bandes Infrarouge (SWIR) pour mesurer directement l'humidité contenue dans la terre. Un sol saturé en plein été est la preuve formelle d'une irrigation massive, confirmant l'épuisement de l'aquifère et la subsidence inélastique du cluster associé.")
+    st.markdown("### Saturation Hydrique (Indice NDWI de Gao)")
+    st.info("💡 **Aide PFE :** L'indice NDWI exploite les bandes Infrarouge (SWIR) pour mesurer l'humidité contenue dans le couvert végétal et le sol. Une valeur anormalement haute en plein été confirme une irrigation massive par pompage de l'aquifère, validant l'hypothèse de la subsidence InSAR observée.")
     
-    if "extraction_sm_lancee" not in st.session_state:
-        st.session_state.extraction_sm_lancee = False
+    if "extraction_ndwi_lancee" not in st.session_state:
+        st.session_state.extraction_ndwi_lancee = False
 
-    col_param_sm, col_graph_sm = st.columns([1, 3])
+    col_param_ndwi, col_graph_ndwi = st.columns([1, 3])
     
-    with col_param_sm:
-        st.subheader("Paramètres NMDI")
-        cluster_choisi_sm = st.selectbox("Sélectionnez le Cluster InSAR :", [0, 1, 2, 3], key="sm_select")
-        start_date_sm = st.date_input("Date de début", value=pd.to_datetime("2016-01-01"), key="sm_start")
-        end_date_sm = st.date_input("Date de fin", value=pd.to_datetime("2022-12-31"), key="sm_end")
-        lancer_sm = st.button("Lancer l'Extraction de l'Humidité", type="primary", key="sm_btn")
+    with col_param_ndwi:
+        st.subheader("Paramètres NDWI")
+        cluster_choisi_ndwi = st.selectbox("Sélectionnez le Cluster InSAR :", [0, 1, 2, 3], key="ndwi_select")
+        start_date_ndwi = st.date_input("Date de début", value=pd.to_datetime("2016-01-01"), key="ndwi_start")
+        end_date_ndwi = st.date_input("Date de fin", value=pd.to_datetime("2022-12-31"), key="ndwi_end")
+        lancer_ndwi = st.button("Lancer l'Extraction de l'Humidité", type="primary", key="ndwi_btn")
 
-    if lancer_sm:
-        st.session_state.extraction_sm_lancee = True
+    if lancer_ndwi:
+        st.session_state.extraction_ndwi_lancee = True
 
-    with col_graph_sm:
-        if st.session_state.extraction_sm_lancee:
-            polygons_sm = load_cluster_polygons("clusters.tif", cluster_choisi_sm)
+    with col_graph_ndwi:
+        if st.session_state.extraction_ndwi_lancee:
+            polygons_ndwi = load_cluster_polygons("clusters.tif", cluster_choisi_ndwi)
             
-            if polygons_sm is None:
+            if polygons_ndwi is None:
                 st.error("Cluster vide.")
             else:
-                with st.spinner("Calcul de l'indice NMDI (Humidité du sol) sur GEE..."):
+                with st.spinner("Calcul de l'indice NDWI (Humidité) sur GEE..."):
                     try:
-                        df_sm = get_soil_moisture_series(polygons_sm, start_date_sm.strftime('%Y-%m-%d'), end_date_sm.strftime('%Y-%m-%d'))
+                        df_ndwi = get_soil_moisture_series(polygons_ndwi, start_date_ndwi.strftime('%Y-%m-%d'), end_date_ndwi.strftime('%Y-%m-%d'))
                         
-                        # --- Graphique 1 : Série Temporelle NMDI ---
-                        fig_sm1, ax_sm1 = plt.subplots(figsize=(12, 4))
-                        ax_sm1.plot(df_sm.index, df_sm['NMDI'], color='#01665e', linewidth=1.5)
-                        ax_sm1.fill_between(df_sm.index, df_sm['NMDI'], color='#01665e', alpha=0.2)
-                        ax_sm1.set_title(f"Évolution Humidité du Sol (NMDI) - Cluster {cluster_choisi_sm}")
-                        ax_sm1.set_ylabel("NMDI")
-                        ax_sm1.grid(True, alpha=0.3)
-                        st.pyplot(fig_sm1)
-
-                        # --- Graphique 2 & 3 : Phénologie Hydrique et Anomalies ---
-                        col_sg1, col_sg2 = st.columns(2)
-                        
-                        with col_sg1:
-                            fig_sm2, ax_sm2 = plt.subplots(figsize=(6, 4))
-                            sns.boxplot(data=df_sm, x='Mois', y='NMDI', ax=ax_sm2, color="lightblue")
-                            ax_sm2.set_title("Profil Hydrique Mensuel Moyen")
-                            ax_sm2.set_xlabel("Mois de l'année")
-                            ax_sm2.grid(True, alpha=0.3)
-                            st.pyplot(fig_sm2)
+                        if df_ndwi.empty:
+                            st.warning("Aucune donnée NDVI valide trouvée pour cette période.")
+                        else:
+                            # --- Graphique 1 : Série Temporelle NDWI ---
+                            fig_ndwi1, ax_ndwi1 = plt.subplots(figsize=(12, 4))
+                            ax_ndwi1.plot(df_ndwi.index, df_ndwi['NDWI'], color='#01665e', linewidth=1.5)
+                            ax_ndwi1.fill_between(df_ndwi.index, df_ndwi['NDWI'], color='#01665e', alpha=0.2)
+                            ax_ndwi1.set_title(f"Évolution de l'Humidité (NDWI) - Cluster {cluster_choisi_ndwi}")
+                            ax_ndwi1.set_ylabel("NDWI")
+                            ax_ndwi1.grid(True, alpha=0.3)
+                            st.pyplot(fig_ndwi1)
+    
+                            # --- Graphique 2 & 3 : Phénologie Hydrique et Anomalies ---
+                            col_ng1, col_ng2 = st.columns(2)
                             
-                            with st.expander("🧠 Interprétation PFE (Cycle de l'eau)"):
-                                st.write("""
-                                - **Comportement Naturel :** L'humidité devrait être haute en hiver (pluies) et s'effondrer en été.
-                                - **Comportement Anthropique (Irrigation) :** Si les boîtes des mois d'été (6, 7, 8) restent hautes ou présentent des pics anormaux, cela prouve l'apport artificiel d'eau souterraine.
-                                """)
-
-                        with col_sg2:
-                            summer_sm = df_sm[df_sm['Saison'] == 'Été (Irrigation)'].groupby('Année')['NMDI'].mean()
-                            fig_sm3, ax_sm3 = plt.subplots(figsize=(6, 4))
-                            summer_sm.plot(kind='bar', ax=ax_sm3, color='teal', edgecolor='black')
-                            ax_sm3.set_title("Humidité Moyenne Estivale par Année")
-                            ax_sm3.set_ylabel("NMDI Moyen (Juin-Août)")
-                            ax_sm3.set_ylim(0.4, max(summer_sm)*1.1)
-                            ax_sm3.grid(axis='y', alpha=0.3)
-                            st.pyplot(fig_sm3)
+                            with col_ng1:
+                                fig_ndwi2, ax_ndwi2 = plt.subplots(figsize=(6, 4))
+                                sns.boxplot(data=df_ndwi, x='Mois', y='NDWI', ax=ax_ndwi2, color="lightblue")
+                                ax_ndwi2.set_title("Profil Hydrique Mensuel Moyen")
+                                ax_ndwi2.set_xlabel("Mois de l'année")
+                                ax_ndwi2.grid(True, alpha=0.3)
+                                st.pyplot(fig_ndwi2)
+                                
+                                with st.expander("🧠 Interprétation PFE (Cycle de l'eau)"):
+                                    st.write("""
+                                    - **Comportement Naturel :** L'humidité est généralement haute en hiver et chute drastiquement en été.
+                                    - **Comportement Anthropique (Irrigation) :** Si la médiane (ligne centrale de la boîte) reste élevée en été (mois 6, 7, 8), cela démontre un maintien artificiel de l'humidité par extraction d'eau souterraine.
+                                    """)
+    
+                            with col_ng2:
+                                summer_ndwi = df_ndwi[df_ndwi['Saison'] == 'Été (Irrigation)'].groupby('Année')['NDWI'].mean()
+                                fig_ndwi3, ax_ndwi3 = plt.subplots(figsize=(6, 4))
+                                summer_ndwi.plot(kind='bar', ax=ax_ndwi3, color='teal', edgecolor='black')
+                                ax_ndwi3.set_title("Humidité Moyenne Estivale par Année")
+                                ax_ndwi3.set_ylabel("NDWI Moyen (Juin-Août)")
+                                ax_ndwi3.set_ylim(-0.2, max(summer_ndwi.max(), 0.1) * 1.2)
+                                ax_ndwi3.grid(axis='y', alpha=0.3)
+                                st.pyplot(fig_ndwi3)
+                                
+                                with st.expander("🧠 Interprétation PFE (Subsidence)"):
+                                    st.write("Croisez ces données avec vos composantes indépendantes (ICs). Une forte anomalie positive du NDWI estival au cours d'une année spécifique coïncidera avec les pertes piézométriques maximales.")
+    
+                            st.download_button("📥 Exporter les données NDWI", data=df_ndwi.to_csv().encode('utf-8'), file_name=f'ndwi_cluster_{cluster_choisi_ndwi}.csv', mime='text/csv')
                             
-                            with st.expander("🧠 Interprétation PFE (Subsidence)"):
-                                st.write("Reliez cet histogramme à vos composantes InSAR (IC). Les années où l'humidité estivale est exceptionnellement forte malgré les sécheresses régionales correspondent aux pics de pompage (et donc aux déformations inélastiques maximales).")
-
-                        st.download_button("📥 Exporter les données NMDI", data=df_sm.to_csv().encode('utf-8'), file_name=f'nmdi_cluster_{cluster_choisi_sm}.csv', mime='text/csv')
-                        
-                        # --- Section GIF NMDI ---
-                        st.markdown("---")
-                        st.markdown("### 🎬 Animation Spatio-Temporelle de l'Humidité du Sol")
-                        
-                        col_sgif1, col_sgif2 = st.columns([1, 2])
-                        with col_sgif1:
-                            annee_gif_sm = st.selectbox("Année (NMDI) :", range(2018, 2023), index=2, key="sm_yr")
-                            generer_gif_sm = st.button("🪄 Générer le GIF Humidité", type="secondary", key="sm_gif_btn")
+                            # --- Section GIF NDWI ---
+                            st.markdown("---")
+                            st.markdown("### 🎬 Animation Spatio-Temporelle de l'Humidité")
                             
-                        with col_sgif2:
-                            if generer_gif_sm:
-                                with st.spinner(f"Création de l'animation NMDI pour {annee_gif_sm}..."):
-                                    try:
-                                        gif_bytes_sm = create_sm_gif(polygons_sm, annee_gif_sm)
-                                        if gif_bytes_sm:
-                                            st.image(gif_bytes_sm, use_container_width=True)
-                                            st.download_button("📥 Télécharger le GIF NMDI", data=gif_bytes_sm, file_name=f'NMDI_Cluster{cluster_choisi_sm}_{annee_gif_sm}.gif', mime='image/gif')
-                                        else:
-                                            st.warning("Pas assez d'images sans nuages pour cette période.")
-                                    except Exception as e:
-                                        st.error(f"Erreur : {e}")
+                            col_ngif1, col_ngif2 = st.columns([1, 2])
+                            with col_ngif1:
+                                annee_gif_ndwi = st.selectbox("Année (NDWI) :", range(2018, 2023), index=2, key="ndwi_yr")
+                                generer_gif_ndwi = st.button("🪄 Générer le GIF Humidité", type="secondary", key="ndwi_gif_btn")
+                                
+                            with col_ngif2:
+                                if generer_gif_ndwi:
+                                    with st.spinner(f"Création de l'animation NDWI pour {annee_gif_ndwi}..."):
+                                        try:
+                                            gif_bytes_ndwi = create_sm_gif(polygons_ndwi, annee_gif_ndwi)
+                                            if gif_bytes_ndwi:
+                                                st.image(gif_bytes_ndwi, use_container_width=True)
+                                                st.download_button("📥 Télécharger le GIF NDWI", data=gif_bytes_ndwi, file_name=f'NDWI_Cluster{cluster_choisi_ndwi}_{annee_gif_ndwi}.gif', mime='image/gif')
+                                            else:
+                                                st.warning("Pas assez d'images sans nuages pour générer une animation stable sur cette période.")
+                                        except Exception as e:
+                                            st.error(f"Erreur de génération : {e}")
                     except Exception as e:
-                        st.error(f"Erreur Earth Engine : {e}")
+                        st.error(f"Erreur d'extraction des données : {e}")
