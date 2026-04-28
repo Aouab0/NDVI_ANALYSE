@@ -9,3 +9,6 @@ pandas
 matplotlib
 numpy
 seaborn
+Pillow
+requests
+imageio
