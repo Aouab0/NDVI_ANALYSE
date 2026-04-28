@@ -1,8 +1,8 @@
 import streamlit as st
-from processing import create_ndvi_gif
 import rasterio
 from rasterio.features import shapes
-from shapely.geometry import shape
+from shapely.geometry import shape, mapping
+from shapely.ops import unary_union
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
@@ -10,10 +10,8 @@ import numpy as np
 import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
-from shapely.geometry import shape, mapping
-from shapely.ops import unary_union
 
-from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs
+from processing import init_gee, get_ndvi_series, get_summer_ndvi_thumbs, create_ndvi_gif
 
 st.set_page_config(page_title="PFE - Analyse Hydro-Agricole", layout="wide")
 
@@ -43,7 +41,6 @@ def load_cluster_polygons(tif_path, target_cluster):
     for res in results:
         geom = shape(res['geometry'])
         # FILTRE : On ignore les minuscules pixels orphelins pour ne pas faire crasher GEE
-        # (0.00005 degrés carré élimine le bruit InSAR isolé)
         if geom.area > 0.00005: 
             polygons.append(geom)
             
@@ -78,12 +75,16 @@ def get_raster_overlay(tif_path):
 tab1, tab2 = st.tabs(["📊 1. Analyse Globale par Cluster (Extraction PFE)", "✍️ 2. Analyse Interactive (Ciblage Parcelle)"])
 
 # ---------------------------------------------------------------------
-# ONGLET 1 : ANALYSE GLOBALE PAR CLUSTER (Maintenant Rempli !)
+# ONGLET 1 : ANALYSE GLOBALE PAR CLUSTER
 # ---------------------------------------------------------------------
 with tab1:
     st.markdown("### Comportement Agricole des Zones de Déformation")
     st.info("💡 **Aide PFE :** Utilisez cet onglet pour identifier la signature agricole de chaque cluster InSAR. Un NDVI élevé en été (juin-août) indique une culture intensive irriguée, ce qui justifie l'épuisement de la nappe et la subsidence inélastique.")
     
+    # Initialisation de la mémoire de l'application
+    if "extraction_lancee" not in st.session_state:
+        st.session_state.extraction_lancee = False
+
     col_param, col_graph = st.columns([1, 3])
     
     with col_param:
@@ -93,8 +94,12 @@ with tab1:
         end_date_g = st.date_input("Date de fin (Global)", value=pd.to_datetime("2022-12-31"))
         lancer_global = st.button("Lancer l'Extraction du Cluster", type="primary")
 
+    # Si on clique sur le bouton principal, on active l'état
+    if lancer_global:
+        st.session_state.extraction_lancee = True
+
     with col_graph:
-        if lancer_global:
+        if st.session_state.extraction_lancee:
             st.info(f"Création de la géométrie pour le Cluster {cluster_choisi}...")
             polygons = load_cluster_polygons("clusters.tif", cluster_choisi)
             
@@ -113,7 +118,7 @@ with tab1:
                         ax1.grid(True, alpha=0.3)
                         st.pyplot(fig1)
 
-                        # --- Graphique 2 & 3 : Phénologie et Tendances Estivales (Idéal pour le PFE) ---
+                        # --- Graphique 2 & 3 : Phénologie et Tendances Estivales ---
                         col_g1, col_g2 = st.columns(2)
                         
                         with col_g1:
@@ -131,7 +136,6 @@ with tab1:
                                 """)
 
                         with col_g2:
-                            # Calcul de l'anomalie estivale moyenne
                             summer_ndvi = df_global[df_global['Saison'] == 'Été (Irrigation)'].groupby('Année')['NDVI'].mean()
                             
                             fig3, ax3 = plt.subplots(figsize=(6, 4))
@@ -149,6 +153,7 @@ with tab1:
                                 """)
                                 
                         st.download_button("📥 Exporter les données du Cluster (CSV)", data=df_global.to_csv().encode('utf-8'), file_name=f'ndvi_cluster_{cluster_choisi}.csv', mime='text/csv')
+                        
                         st.markdown("---")
                         st.markdown("### 🎬 Animation Spatio-Temporelle du Cluster")
                         st.info("Générez un GIF pour visualiser l'évolution agricole tous les 10 jours durant la saison chaude (Avril-Octobre).")
@@ -165,10 +170,7 @@ with tab1:
                                         gif_bytes = create_ndvi_gif(polygons, annee_gif)
                                         
                                         if gif_bytes:
-                                            # Affichage du GIF dans l'application
                                             st.image(gif_bytes, use_container_width=True)
-                                            
-                                            # Bouton pour télécharger le GIF
                                             st.download_button(
                                                 label="📥 Télécharger le GIF pour la soutenance",
                                                 data=gif_bytes,
@@ -226,13 +228,12 @@ with tab2:
         drawn_geometry = st_data["last_active_drawing"]["geometry"] 
 
     with col_results:
-        if drawn_geometry: # <--- Modification ici
+        if drawn_geometry:
             st.success("Parcelle capturée ! Analyse en cours...")
             start_yr, end_yr = 2018, 2022
             
             with st.spinner("Extraction de la dynamique locale..."):
                 try:
-                    # On passe "drawn_geometry" directement à GEE
                     df_local = get_ndvi_series(drawn_geometry, f'{start_yr}-01-01', f'{end_yr}-12-31')
                     
                     fig, ax = plt.subplots(figsize=(10, 3.5))
@@ -247,7 +248,8 @@ with tab2:
 
             with st.spinner("Génération des Cartes NDVI Estivales..."):
                 try:
-                    thumbs = get_summer_ndvi_thumbs(drawn_polygon, start_yr, end_yr)
+                    # Correction appliquée ici : utilisation de drawn_geometry
+                    thumbs = get_summer_ndvi_thumbs(drawn_geometry, start_yr, end_yr)
                     st.markdown("#### Couvert Végétal en Été (Preuve d'Irrigation)")
                     
                     cols_img = st.columns(len(thumbs))
