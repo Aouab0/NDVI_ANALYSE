@@ -163,8 +163,97 @@ def create_ndvi_gif(geo_dict, year):
     if not frames:
         return None
         
+        
     # Compilation du GIF en mémoire (2 FPS = 500 ms par frame)
     gif_buf = io.BytesIO()
     frames[0].save(gif_buf, format='GIF', save_all=True, append_images=frames[1:], duration=500, loop=0)
     
     return gif_buf.getvalue()
+def get_soil_moisture_series(geo_dict, start_date, end_date):
+    """
+    Extrait l'indice d'humidité du sol NMDI.
+    Sépare l'humidité du sol de celle de la végétation en exploitant la différence des bandes SWIR.
+    """
+    roi = ee.Geometry(geo_dict)
+    
+    s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+        .filterBounds(roi) \
+        .filterDate(start_date, end_date) \
+        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+        
+    def add_nmdi(image):
+        # Calcul du NMDI : (B8A - (B11 - B12)) / (B8A + (B11 - B12))
+        nmdi = image.expression(
+            '(NIR - (SWIR1 - SWIR2)) / (NIR + (SWIR1 - SWIR2))', {
+                'NIR': image.select('B8A'),
+                'SWIR1': image.select('B11'),
+                'SWIR2': image.select('B12')
+            }
+        ).rename('NMDI')
+        
+        # Les bandes SWIR de Sentinel-2 sont à 20m de résolution
+        mean_dict = nmdi.reduceRegion(
+            reducer=ee.Reducer.mean(),
+            geometry=roi,
+            scale=20, 
+            maxPixels=1e10
+        )
+        return ee.Feature(None, {
+            'date': image.date().format('YYYY-MM-dd'),
+            'NMDI': mean_dict.get('NMDI')
+        })
+
+    timeseries = s2.map(add_nmdi).getInfo()
+    
+    data = []
+    for feature in timeseries['features']:
+        date = feature['properties']['date']
+        val = feature['properties'].get('NMDI')
+        if val is not None:
+            data.append({'Date': date, 'NMDI': val})
+            
+    df = pd.DataFrame(data)
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df_15j = df.resample('15D').mean().interpolate(method='linear')
+    return df_15j
+
+def get_summer_sm_thumbs(geo_dict, start_year, end_year):
+    """
+    Génère les URL des images d'humidité du sol (NMDI) pour chaque été.
+    """
+    roi = ee.Geometry(geo_dict)
+    urls = {}
+    
+    # Palette : Marron (Sec) -> Blanc -> Bleu (Humide)
+    vis_params = {
+        'min': 0.4, 
+        'max': 0.8,
+        'palette': ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e']
+    }
+    
+    for year in range(start_year, end_year + 1):
+        s2_summer = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+            .filterBounds(roi) \
+            .filterDate(f'{year}-06-01', f'{year}-08-31') \
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
+            .median()
+            
+        nmdi = s2_summer.expression(
+            '(NIR - (SWIR1 - SWIR2)) / (NIR + (SWIR1 - SWIR2))', {
+                'NIR': s2_summer.select('B8A'),
+                'SWIR1': s2_summer.select('B11'),
+                'SWIR2': s2_summer.select('B12')
+            }
+        ).rename('NMDI').clip(roi)
+        
+        try:
+            url = nmdi.getThumbURL({
+                'min': vis_params['min'], 'max': vis_params['max'],
+                'palette': vis_params['palette'], 'dimensions': 400, 'format': 'png'
+            })
+            urls[year] = url
+        except:
+            urls[year] = None
+            
+    return urls
