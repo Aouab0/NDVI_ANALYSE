@@ -43,42 +43,48 @@ with col_parametres:
         """)
 
 with col_carte:
-    # Initialisation de la carte
     m = folium.Map(location=[CENTER_LAT, CENTER_LON], zoom_start=11)
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri', name='Satellite de base'
+        attr='Esri', name='Satellite Esri (Statique)'
     ).add_to(m)
     
-    # Si les couches existent en mémoire, on les ajoute à la carte AVANT de l'afficher
     if st.session_state.map_layers:
+        # Ajout de la couche RGB Moyen
+        folium.TileLayer(
+            tiles=st.session_state.map_layers['rgb'],
+            attr='Google Earth Engine',
+            name='Couche RGB Moyen (Vraies Couleurs)',
+            overlay=True,
+            show=True  # On l'affiche par défaut pour voir le terrain
+        ).add_to(m)
+
+        # Ajout du NDMI
         folium.TileLayer(
             tiles=st.session_state.map_layers['ndmi'],
             attr='Google Earth Engine',
-            name='Couche NDMI (Humidité Sol/Plante)',
+            name='Couche NDMI (Humidité)',
             overlay=True,
-            show=True # Affiché par défaut
+            show=False
         ).add_to(m)
         
+        # Ajout du NDWI
         folium.TileLayer(
             tiles=st.session_state.map_layers['ndwi'],
             attr='Google Earth Engine',
-            name='Couche NDWI (Eau de surface)',
+            name='Couche NDWI (Eau)',
             overlay=True,
-            show=False # Masqué par défaut pour ne pas mélanger les couleurs
+            show=False
         ).add_to(m)
         
-    # Ajout du contrôleur de couches (c'est ce qui permet de cocher/décocher les images)
     folium.LayerControl(position='topright').add_to(m)
     
-    # Outils de dessin
     Draw(
         export=False, position='topleft',
         draw_options={'polyline': False, 'rectangle': True, 'polygon': True, 'circle': False, 'marker': False, 'circlemarker': False},
         edit_options={'edit': False}
     ).add_to(m)
     
-    # Rendu de la carte
     st_data = st_folium(m, height=600, use_container_width=True)
 
 # Logique de déclenchement (Quand on clique sur le bouton)
