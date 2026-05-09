@@ -70,26 +70,35 @@ def get_summer_sm_thumbs(geo_dict, start_year, end_year):
     }
     
     for year in range(start_year, end_year + 1):
+        # On filtre la collection pour l'été de l'année en cours
         s2_summer = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(roi) \
             .filterDate(f'{year}-06-01', f'{year}-08-31') \
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
             .median()
             
+        # Calcul de l'indice NDWI
         ndwi = s2_summer.expression(
             '(NIR - SWIR) / (NIR + SWIR)', {
                 'NIR': s2_summer.select('B8A'),
                 'SWIR': s2_summer.select('B11')
             }
-        ).rename('NDWI').clip(roi)
+        ).rename('NDWI')
         
         try:
+            # L'ajout du paramètre 'region': roi est OBLIGATOIRE ici pour que GEE accepte de créer l'image
             url = ndwi.getThumbURL({
-                'min': vis_params['min'], 'max': vis_params['max'],
-                'palette': vis_params['palette'], 'dimensions': 400, 'format': 'png'
+                'min': vis_params['min'], 
+                'max': vis_params['max'],
+                'palette': vis_params['palette'], 
+                'dimensions': 400, 
+                'region': roi,  # <-- C'est ce paramètre qui débloque l'affichage
+                'format': 'png'
             })
             urls[year] = url
-        except:
+        except Exception as e:
+            # Affichage de l'erreur dans la console pour faciliter le débogage si besoin
+            print(f"Erreur pour l'année {year} : {e}")
             urls[year] = None
             
     return urls
