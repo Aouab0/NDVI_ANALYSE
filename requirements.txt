@@ -2,13 +2,6 @@ streamlit
 streamlit-folium
 folium
 earthengine-api
-rasterio
-geopandas
-shapely
 pandas
 matplotlib
 numpy
-seaborn
-Pillow
-requests
-imageio
