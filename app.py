@@ -1,47 +1,75 @@
 import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib as mpl
 import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
+import pandas as pd
 
-from processing import init_gee, get_soil_moisture_series, get_summer_sm_thumbs
+from processing import init_gee, get_moisture_map_layers
 
 # Configuration de la page
-st.set_page_config(page_title="PFE - Analyse Humidité", layout="wide")
+st.set_page_config(page_title="PFE - Cartographie Humidité", layout="wide")
 
-# Coordonnées centrales (ex: Plaine du Gharb)
 CENTER_LAT, CENTER_LON = 34.3, -6.1 
 
-st.title("💧 Analyse Interactive de l'Humidité du Sol (Indice NMDI/NDWI)")
-st.info("Dessinez une zone agricole sur la carte, choisissez la période de votre étude, puis lancez l'extraction pour lier la saturation hydrique à la surexploitation des aquifères.")
+st.title("💧 Cartographie Spatiale : NDMI & NDWI")
+st.info("Analysez visuellement la saturation hydrique des parcelles. Le **NDMI** montre l'humidité interne du sol et des plantes (irrigation), tandis que le **NDWI** met en évidence l'eau libre en surface.")
 
 with st.spinner("Connexion sécurisée à Google Earth Engine..."):
     init_gee()
 
-# Initialisation de la mémoire pour figer les résultats
-if "resultats_analyse" not in st.session_state:
-    st.session_state.resultats_analyse = None
+# Mémoire de l'application pour conserver les couches affichées
+if "map_layers" not in st.session_state:
+    st.session_state.map_layers = None
 
-col_map, col_results = st.columns([1, 1])
+col_parametres, col_carte = st.columns([1, 3])
 
-with col_map:
-    st.subheader("1. Zone d'étude et Période")
+with col_parametres:
+    st.subheader("1. Paramètres")
+    start_date = st.date_input("Date de début", value=pd.to_datetime("2020-06-01"))
+    end_date = st.date_input("Date de fin", value=pd.to_datetime("2020-08-31"))
     
-    # Choix de la période
-    col_dates1, col_dates2 = st.columns(2)
-    with col_dates1:
-        start_date = st.date_input("Date de début", value=pd.to_datetime("2018-01-01"))
-    with col_dates2:
-        end_date = st.date_input("Date de fin", value=pd.to_datetime("2022-12-31"))
+    st.markdown("---")
+    st.subheader("2. Action")
+    st.write("Dessinez un polygone sur la carte, puis lancez le calcul.")
+    
+    lancer_calcul = st.button("🚀 Afficher les couches", type="primary", use_container_width=True)
+    
+    if st.session_state.map_layers:
+        st.success("✅ Couches générées avec succès ! Utilisez l'icône en haut à droite de la carte pour basculer entre le NDMI et le NDWI.")
+        st.markdown("""
+        **Légendes :**
+        - **NDMI (Vert/Bleu-vert) :** Plus la couleur est foncée, plus la parcelle est saturée en eau (preuve d'irrigation massive en été).
+        - **NDWI (Bleu foncé) :** Indique la présence d'eau à la surface même du sol.
+        """)
 
+with col_carte:
     # Initialisation de la carte
     m = folium.Map(location=[CENTER_LAT, CENTER_LON], zoom_start=11)
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri', name='Esri Satellite'
+        attr='Esri', name='Satellite de base'
     ).add_to(m)
+    
+    # Si les couches existent en mémoire, on les ajoute à la carte AVANT de l'afficher
+    if st.session_state.map_layers:
+        folium.TileLayer(
+            tiles=st.session_state.map_layers['ndmi'],
+            attr='Google Earth Engine',
+            name='Couche NDMI (Humidité Sol/Plante)',
+            overlay=True,
+            show=True # Affiché par défaut
+        ).add_to(m)
+        
+        folium.TileLayer(
+            tiles=st.session_state.map_layers['ndwi'],
+            attr='Google Earth Engine',
+            name='Couche NDWI (Eau de surface)',
+            overlay=True,
+            show=False # Masqué par défaut pour ne pas mélanger les couleurs
+        ).add_to(m)
+        
+    # Ajout du contrôleur de couches (c'est ce qui permet de cocher/décocher les images)
+    folium.LayerControl(position='topright').add_to(m)
     
     # Outils de dessin
     Draw(
@@ -50,75 +78,27 @@ with col_map:
         edit_options={'edit': False}
     ).add_to(m)
     
-    # Affichage de la carte
-    st_data = st_folium(m, height=450, use_container_width=True)
+    # Rendu de la carte
+    st_data = st_folium(m, height=600, use_container_width=True)
 
+# Logique de déclenchement (Quand on clique sur le bouton)
+if lancer_calcul:
     drawn_geometry = None
-    if st_data["last_active_drawing"]:
+    if st_data and st_data.get("last_active_drawing"):
         drawn_geometry = st_data["last_active_drawing"]["geometry"] 
 
-    # Bouton de lancement explicite
-    if st.button("🚀 Lancer le calcul sur cette zone", type="primary", use_container_width=True):
-        if not drawn_geometry:
-            st.warning("⚠️ Veuillez d'abord dessiner un polygone sur la carte.")
-        else:
-            with st.spinner("Extraction de la dynamique hydrique depuis les serveurs Google..."):
-                try:
-                    df_sm = get_soil_moisture_series(drawn_geometry, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-                    thumbs = get_summer_sm_thumbs(drawn_geometry, start_date.year, end_date.year)
-                    
-                    # On stocke les résultats dans la mémoire pour éviter les rechargements intempestifs
-                    st.session_state.resultats_analyse = {
-                        "df": df_sm,
-                        "thumbs": thumbs,
-                        "start_yr": start_date.year,
-                        "end_yr": end_date.year
-                    }
-                except Exception as e:
-                    st.error(f"Erreur d'extraction : {e}")
-
-with col_results:
-    st.subheader("2. Résultats de l'analyse")
-    
-    # Affichage figé des résultats stockés en mémoire
-    if st.session_state.resultats_analyse:
-        res = st.session_state.resultats_analyse
-        df_local_sm = res["df"]
-        thumbs_sm = res["thumbs"]
-        s_yr, e_yr = res["start_yr"], res["end_yr"]
-        
-        if not df_local_sm.empty:
-            # Création du graphique principal
-            fig, ax = plt.subplots(figsize=(10, 4.5))
-            ax.plot(df_local_sm.index, df_local_sm['NDWI'], color='#01665e', linewidth=2)
-            ax.fill_between(df_local_sm.index, df_local_sm['NDWI'], color='#01665e', alpha=0.2)
-            ax.set_title("Dynamique de l'humidité du sol (Indice NDWI/NMDI)")
-            ax.set_ylabel("Indice")
-            ax.grid(True, alpha=0.3)
-            
-            # Ajout de la barre de valeurs (Colorbar) demandée
-            cmap = mpl.colors.LinearSegmentedColormap.from_list('ndwi_cmap', ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e'])
-            norm = mpl.colors.Normalize(vmin=-0.2, vmax=0.4)
-            sm_cbar = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-            sm_cbar.set_array([])
-            cbar = fig.colorbar(sm_cbar, ax=ax, orientation='vertical', fraction=0.03, pad=0.04)
-            cbar.set_label('Humidité (Sec ➔ Saturé en eau)')
-            
-            st.pyplot(fig)
-            
-            st.download_button("📥 Exporter la série d'humidité (CSV)", data=df_local_sm.to_csv().encode('utf-8'), file_name='humidite_sol_locale.csv')
-            
-            # Affichage des miniatures estivales
-            st.markdown("#### Cartes de Saturation en Eau (Juin - Août)")
-            cols_img = st.columns(len(thumbs_sm))
-            for idx, (year, url) in enumerate(thumbs_sm.items()):
-                with cols_img[idx]:
-                    st.markdown(f"**Été {year}**")
-                    if url: 
-                        st.image(url, use_container_width=True)
-                    else: 
-                        st.write("ND")
-        else:
-            st.warning("Aucune donnée valide trouvée pour cette période.")
+    if not drawn_geometry:
+        st.error("⚠️ Vous devez d'abord dessiner un polygone (carré ou forme libre) sur la carte.")
     else:
-        st.info("👈 Dessinez une zone sur la carte, ajustez les dates et cliquez sur le bouton pour lancer l'analyse. Les résultats resteront affichés ici tant que vous ne relancez pas un nouveau calcul.")
+        with st.spinner("Demande de calcul aux serveurs de Google (cela peut prendre quelques secondes)..."):
+            try:
+                # Récupération des URLs
+                layers = get_moisture_map_layers(drawn_geometry, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+                
+                # Stockage en mémoire
+                st.session_state.map_layers = layers
+                
+                # On force le rechargement de la page pour que la carte intègre les nouvelles couches
+                st.rerun() 
+            except Exception as e:
+                st.error(f"Erreur lors du calcul GEE : {e}")
