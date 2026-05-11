@@ -3,6 +3,8 @@ import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 import pandas as pd
+import json
+import os
 
 from processing import init_gee, get_moisture_map_layers
 
@@ -35,11 +37,12 @@ with col_parametres:
     lancer_calcul = st.button("🚀 Afficher les couches", type="primary", use_container_width=True)
     
     if st.session_state.map_layers:
-        st.success("✅ Couches générées avec succès ! Utilisez l'icône en haut à droite de la carte pour basculer entre le NDMI et le NDWI.")
+        st.success("✅ Couches générées avec succès !")
         st.markdown("""
         **Légendes :**
-        - **NDMI (Vert/Bleu-vert) :** Plus la couleur est foncée, plus la parcelle est saturée en eau (preuve d'irrigation massive en été).
-        - **NDWI (Bleu foncé) :** Indique la présence d'eau à la surface même du sol.
+        - **NDMI (Vert/Bleu-vert) :** Saturation en eau du sol/plantes.
+        - **NDWI (Bleu foncé) :** Eau libre en surface.
+        - **Points rouges :** Vos points de mission de terrain.
         """)
 
 with col_carte:
@@ -49,17 +52,36 @@ with col_carte:
         attr='Esri', name='Satellite Esri (Statique)'
     ).add_to(m)
     
+    # 1. Chargement et ajout du fichier mission.geojson (Layer Points de terrain)
+    if os.path.exists("mission.geojson"):
+        try:
+            with open("mission.geojson", "r", encoding="utf-8") as f:
+                geo_data = json.load(f)
+            
+            folium.GeoJson(
+                geo_data,
+                name="Points de Mission",
+                tooltip=folium.GeoJsonTooltip(
+                    fields=["nom_point"],
+                    aliases=["Point :"],
+                    localize=True
+                ),
+                popup=folium.GeoJsonPopup(fields=["nom_point"]),
+                marker=folium.Marker(icon=folium.Icon(color="red", icon="info-sign"))
+            ).add_to(m)
+        except Exception as e:
+            st.error(f"Erreur lors de la lecture du fichier GeoJSON : {e}")
+
+    # 2. Ajout des couches dynamiques GEE
     if st.session_state.map_layers:
-        # Ajout de la couche RGB Moyen
         folium.TileLayer(
             tiles=st.session_state.map_layers['rgb'],
             attr='Google Earth Engine',
-            name='Couche RGB Moyen (Vraies Couleurs)',
+            name='Couche RGB Moyen',
             overlay=True,
-            show=True  # On l'affiche par défaut pour voir le terrain
+            show=True
         ).add_to(m)
 
-        # Ajout du NDMI
         folium.TileLayer(
             tiles=st.session_state.map_layers['ndmi'],
             attr='Google Earth Engine',
@@ -68,7 +90,6 @@ with col_carte:
             show=False
         ).add_to(m)
         
-        # Ajout du NDWI
         folium.TileLayer(
             tiles=st.session_state.map_layers['ndwi'],
             attr='Google Earth Engine',
@@ -87,24 +108,19 @@ with col_carte:
     
     st_data = st_folium(m, height=600, use_container_width=True)
 
-# Logique de déclenchement (Quand on clique sur le bouton)
+# Logique de déclenchement
 if lancer_calcul:
     drawn_geometry = None
     if st_data and st_data.get("last_active_drawing"):
         drawn_geometry = st_data["last_active_drawing"]["geometry"] 
 
     if not drawn_geometry:
-        st.error("⚠️ Vous devez d'abord dessiner un polygone (carré ou forme libre) sur la carte.")
+        st.error("⚠️ Veuillez dessiner un polygone sur la carte.")
     else:
-        with st.spinner("Demande de calcul aux serveurs de Google (cela peut prendre quelques secondes)..."):
+        with st.spinner("Calcul des couches en cours..."):
             try:
-                # Récupération des URLs
                 layers = get_moisture_map_layers(drawn_geometry, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
-                
-                # Stockage en mémoire
                 st.session_state.map_layers = layers
-                
-                # On force le rechargement de la page pour que la carte intègre les nouvelles couches
                 st.rerun() 
             except Exception as e:
-                st.error(f"Erreur lors du calcul GEE : {e}")
+                st.error(f"Erreur GEE : {e}")
