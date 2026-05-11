@@ -42,7 +42,7 @@ with col_parametres:
         **Légendes :**
         - **NDMI (Vert/Bleu-vert) :** Saturation en eau du sol/plantes.
         - **NDWI (Bleu foncé) :** Eau libre en surface.
-        - **Points rouges :** Vos points de mission de terrain.
+        - **Points rouges :** Points de mission de terrain.
         """)
 
 with col_carte:
