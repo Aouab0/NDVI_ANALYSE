@@ -7,4 +7,4 @@ matplotlib
 numpy
 io                     
 rasterio               
-pillow
+Pillow
