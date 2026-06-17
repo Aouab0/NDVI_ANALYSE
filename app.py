@@ -12,7 +12,7 @@ from rasterio.plot import reshape_as_image  ### AJOUT ###
 import matplotlib.pyplot as plt   ### AJOUT ###
 from matplotlib import cm         ### AJOUT ###
 from PIL import Image             ### AJOUT ###
-
+import tempfile
 from processing import init_gee, get_moisture_map_layers
 
 # Configuration de la page
@@ -35,11 +35,10 @@ def get_cumul_overlay(tif_path):
     """
     Charge le raster Cumul.tif (WGS84), applique la palette 'turbo'
     avec les valeurs négatives considérées comme maximales (inversion de l'échelle),
-    et retourne l'image PNG et les coordonnées de la bounding box.
+    et retourne le chemin du fichier PNG temporaire et les coordonnées de la bounding box.
     """
     with rasterio.open(tif_path) as src:
         data = src.read(1)  # bande unique
-        # Masque des données valides (exclut nodata)
         mask = src.read_masks(1) > 0
         data_masked = np.ma.array(data, mask=~mask)
         vmin = data_masked.min()
@@ -51,26 +50,24 @@ def get_cumul_overlay(tif_path):
         # les positives (proches de vmax) auront 0
         inv_norm = 1.0 - norm_data
         
-        # Appliquer la palette 'turbo' (utiliser cm.turbo qui retourne RGBA)
-        colored = cm.turbo(inv_norm)   # shape (hauteur, largeur, 4) avec alpha=1
-        # Mettre les pixels nodata totalement transparents
-        colored[..., 3] = np.where(mask, 1.0, 0.0)
+        # Appliquer la palette 'turbo' (retourne RGBA)
+        colored = cm.turbo(inv_norm)   # shape (H, W, 4)
+        colored[..., 3] = np.where(mask, 1.0, 0.0)  # transparence pour nodata
         
         # Convertir en image PIL 8 bits
         img_array = (colored * 255).astype(np.uint8)
         img = Image.fromarray(img_array)
         
-        # Sauvegarder en mémoire (PNG)
-        buf = io.BytesIO()
-        img.save(buf, format='PNG')
-        buf.seek(0)
+        # Sauvegarder dans un fichier temporaire (persiste dans le conteneur)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            img.save(tmp, format='PNG')
+            tmp_path = tmp.name
         
         # Coordonnées de la bounding box (WGS84)
         bounds = [[src.bounds.bottom, src.bounds.left],
                   [src.bounds.top, src.bounds.right]]
         
-        return buf, bounds
-
+        return tmp_path, bounds
 
 with col_parametres:
     st.subheader("1. Paramètres")
@@ -119,15 +116,14 @@ with col_carte:
         except Exception as e:
             st.error(f"Erreur lors de la lecture du fichier GeoJSON : {e}")
     if os.path.exists("Cumul.tif"):
-        cumul_img, cumul_bounds = get_cumul_overlay("Cumul.tif")
+        cumul_path, cumul_bounds = get_cumul_overlay("Cumul.tif")
         folium.raster_layers.ImageOverlay(
-            image=cumul_img,
+            image=cumul_path,          # Chemin du fichier temporaire
             bounds=cumul_bounds,
-            colormap=None,          # l'image a déjà ses couleurs
             opacity=1.0,
             name='Cumul (palette turbo inversée)',
             show=True,
-            mercator_project=False  # WGS84 natif
+            mercator_project=False
         ).add_to(m)
 
     # 2. Ajout des couches dynamiques GEE
