@@ -5,3 +5,6 @@ earthengine-api
 pandas
 matplotlib
 numpy
+io                     
+rasterio               
+PIL
