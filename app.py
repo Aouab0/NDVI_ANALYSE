@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt   ### AJOUT ###
 from matplotlib import cm         ### AJOUT ###
 from PIL import Image             ### AJOUT ###
 import tempfile
+from folium.plugins import Draw, LocateControl
 from processing import init_gee, get_moisture_map_layers
 
 # Configuration de la page
@@ -159,7 +160,11 @@ with col_carte:
         draw_options={'polyline': False, 'rectangle': True, 'polygon': True, 'circle': False, 'marker': False, 'circlemarker': False},
         edit_options={'edit': False}
     ).add_to(m)
-    
+    LocateControl(
+        position='topleft',
+        strings={'title': 'Me localiser', 'popup': 'Vous êtes ici'},
+        locateOptions={'enableHighAccuracy': True}
+    ).add_to(m)
     st_data = st_folium(m, height=600, use_container_width=True)
 
 # Logique de déclenchement
