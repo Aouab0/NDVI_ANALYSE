@@ -112,16 +112,16 @@ with col_carte:
         except Exception as e:
             st.error(f"Erreur lors de la lecture du fichier GeoJSON : {e}")
     if os.path.exists("Cumul.tif"):
-    cumul_img, cumul_bounds = get_cumul_overlay("Cumul.tif")
-    folium.raster_layers.ImageOverlay(
-        image=cumul_img,
-        bounds=cumul_bounds,
-        colormap=None,          # l'image a déjà ses couleurs
-        opacity=1.0,
-        name='Cumul (palette turbo inversée)',
-        show=True,
-        mercator_project=False  # WGS84 natif
-    ).add_to(m)
+        cumul_img, cumul_bounds = get_cumul_overlay("Cumul.tif")
+        folium.raster_layers.ImageOverlay(
+            image=cumul_img,
+            bounds=cumul_bounds,
+            colormap=None,          # l'image a déjà ses couleurs
+            opacity=1.0,
+            name='Cumul (palette turbo inversée)',
+            show=True,
+            mercator_project=False  # WGS84 natif
+        ).add_to(m)
 
     # 2. Ajout des couches dynamiques GEE
     if st.session_state.map_layers:
