@@ -5,6 +5,13 @@ from streamlit_folium import st_folium
 import pandas as pd
 import json
 import os
+import io                     ### AJOUT ###
+import numpy as np            ### AJOUT ###
+import rasterio               ### AJOUT ###
+from rasterio.plot import reshape_as_image  ### AJOUT ###
+import matplotlib.pyplot as plt   ### AJOUT ###
+from matplotlib import cm         ### AJOUT ###
+from PIL import Image             ### AJOUT ###
 
 from processing import init_gee, get_moisture_map_layers
 
