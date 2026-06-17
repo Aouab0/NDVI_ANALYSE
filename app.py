@@ -24,6 +24,46 @@ if "map_layers" not in st.session_state:
     st.session_state.map_layers = None
 
 col_parametres, col_carte = st.columns([1, 3])
+def get_cumul_overlay(tif_path):
+    """
+    Charge le raster Cumul.tif (WGS84), applique la palette 'turbo'
+    avec les valeurs négatives considérées comme maximales (inversion de l'échelle),
+    et retourne l'image PNG et les coordonnées de la bounding box.
+    """
+    with rasterio.open(tif_path) as src:
+        data = src.read(1)  # bande unique
+        # Masque des données valides (exclut nodata)
+        mask = src.read_masks(1) > 0
+        data_masked = np.ma.array(data, mask=~mask)
+        vmin = data_masked.min()
+        vmax = data_masked.max()
+        
+        # Normalisation classique : 0 (vmin) -> 1 (vmax)
+        norm_data = (data_masked - vmin) / (vmax - vmin)
+        # Inversion : les valeurs négatives (proches de vmin) auront 1,
+        # les positives (proches de vmax) auront 0
+        inv_norm = 1.0 - norm_data
+        
+        # Appliquer la palette 'turbo' (utiliser cm.turbo qui retourne RGBA)
+        colored = cm.turbo(inv_norm)   # shape (hauteur, largeur, 4) avec alpha=1
+        # Mettre les pixels nodata totalement transparents
+        colored[..., 3] = np.where(mask, 1.0, 0.0)
+        
+        # Convertir en image PIL 8 bits
+        img_array = (colored * 255).astype(np.uint8)
+        img = Image.fromarray(img_array)
+        
+        # Sauvegarder en mémoire (PNG)
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        
+        # Coordonnées de la bounding box (WGS84)
+        bounds = [[src.bounds.bottom, src.bounds.left],
+                  [src.bounds.top, src.bounds.right]]
+        
+        return buf, bounds
+
 
 with col_parametres:
     st.subheader("1. Paramètres")
@@ -71,6 +111,17 @@ with col_carte:
             ).add_to(m)
         except Exception as e:
             st.error(f"Erreur lors de la lecture du fichier GeoJSON : {e}")
+    if os.path.exists("Cumul.tif"):
+    cumul_img, cumul_bounds = get_cumul_overlay("Cumul.tif")
+    folium.raster_layers.ImageOverlay(
+        image=cumul_img,
+        bounds=cumul_bounds,
+        colormap=None,          # l'image a déjà ses couleurs
+        opacity=1.0,
+        name='Cumul (palette turbo inversée)',
+        show=True,
+        mercator_project=False  # WGS84 natif
+    ).add_to(m)
 
     # 2. Ajout des couches dynamiques GEE
     if st.session_state.map_layers:
