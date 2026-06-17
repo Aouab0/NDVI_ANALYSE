@@ -4,7 +4,6 @@ folium
 earthengine-api
 pandas
 matplotlib
-numpy
-io                     
+numpy                   
 rasterio               
 Pillow
