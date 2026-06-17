@@ -107,11 +107,11 @@ with col_carte:
                 geo_data,
                 name="Points de Mission",
                 tooltip=folium.GeoJsonTooltip(
-                    fields=["nom_point", "Subsidence"],
-                    aliases=["Point :", "Subsidence (mm) :"],
+                    fields=["nom_point"],
+                    aliases=["Point :"],
                     localize=True
                 ),
-                popup=folium.GeoJsonPopup(fields=["nom_point", "Subsidence"]),
+                popup=folium.GeoJsonPopup(fields=["nom_point"]),
                 marker=folium.Marker(icon=folium.Icon(color="red", icon="info-sign"))
             ).add_to(m)
         except Exception as e:
